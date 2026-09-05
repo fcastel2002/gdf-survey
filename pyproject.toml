@@ -6,6 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "gdf-survey"
 version = "0.1.0"
 description = "GraphWorX32 GDF display survey, equipment grouping, and Excel/HTML reporting tool"
+license = { text = "MIT" }
+authors = [
+    { name = "Francisco Castel" }
+]
 requires-python = ">=3.12"
 dependencies = [
     "graphworx32-gdf-parser>=0.1.0",

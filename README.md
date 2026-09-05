@@ -29,6 +29,6 @@ gdf-survey pantallas/*.gdf --output-dir=informes/
 gdf-survey pantalla.gdf -x reporte.xlsx -t reporte.html
 ```
 
-## License and Status
+## License
 
-**Notice**: License selection is currently pending project author confirmation. All rights reserved. Do not redistribute without explicit permission.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
