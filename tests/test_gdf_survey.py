@@ -161,3 +161,113 @@ def test_excel_report_saves_formula_like_strings_as_literal_text(tmp_path: Path)
     assert cell_well.value == formula_payload
     assert cell_code.data_type == "s"
     assert cell_code.value == hyperlink_payload
+
+
+def test_flat_mode_extraction(synthetic_gdf: Path) -> None:
+    res = extract_gdf_survey(synthetic_gdf, layer_target="1", flat=True)
+    assert res.total_items == 8
+    assert res.total_objects == 8
+    # Each item is individual object
+    assert res.items[0].root_id == "eq1_disp"
+    assert res.items[1].root_id == "eq1_well"
+
+
+def test_custom_data_filter_extraction(synthetic_gdf: Path) -> None:
+    res = extract_gdf_survey(
+        synthetic_gdf,
+        layer_target="1",
+        custom_data_filter=["<<dispositivo>>", "<<pozo>>"],
+    )
+    assert res.discovered_custom_data_keys == ["<<dispositivo>>", "<<pozo>>"]
+    item = res.items[0]
+    assert "<<dispositivo>>" in item.custom_data
+    assert "<<pozo>>" in item.custom_data
+    assert "<<tienept>>" not in item.custom_data
+
+
+def test_root_custom_data_and_pattern(synthetic_gdf: Path) -> None:
+    res = extract_gdf_survey(
+        synthetic_gdf,
+        layer_target="1",
+        root_name_pattern=r"^([a-z0-9]+)_",
+        root_custom_data="<<dispositivo>>",
+    )
+    assert res.total_items == 1
+    assert res.items[0].root_id == "eq1"
+    assert res.items[0].primary_source == "EQ_01.CTRL_A"
+
+
+def test_cli_generic_survey_options(synthetic_gdf: Path, tmp_path: Path) -> None:
+    excel_out = tmp_path / "custom_cli.xlsx"
+    html_out = tmp_path / "custom_cli.html"
+
+    exit_code = main([
+        str(synthetic_gdf),
+        "-r=^([a-z0-9]+)_",
+        "--custom-data=<<dispositivo>>,<<pozo>>",
+        f"--out-excel={excel_out}",
+        f"--out-html={html_out}",
+        "--quiet",
+    ])
+    assert exit_code == 0
+    assert excel_out.exists()
+    assert html_out.exists()
+
+    # Verify Excel headers contain only filtered custom data
+    wb = openpyxl.load_workbook(excel_out)
+    ws = wb[wb.sheetnames[0]]
+    headers = [ws.cell(row=4, column=c).value for c in range(1, 8)]
+    assert "<<dispositivo>>" in headers
+    assert "<<pozo>>" in headers
+    assert "<<tienept>>" not in headers
+
+
+def test_cli_flat_mode_execution(synthetic_gdf: Path, tmp_path: Path) -> None:
+    excel_out = tmp_path / "flat_cli.xlsx"
+    html_out = tmp_path / "flat_cli.html"
+
+    exit_code = main([
+        str(synthetic_gdf),
+        "--flat",
+        f"--out-excel={excel_out}",
+        f"--out-html={html_out}",
+        "--quiet",
+    ])
+    assert exit_code == 0
+    assert excel_out.exists()
+    assert html_out.exists()
+
+
+def test_generic_custom_data_html_report(tmp_path: Path) -> None:
+    from gdf_survey.models import EquipmentRecord, GdfSurveyResult
+    eq1 = EquipmentRecord(
+        index=1,
+        root_id="Motor_101",
+        label="Motor 101",
+        device_name="PLC_MAIN",
+        controller_type="PLC",
+        primary_source="[PLC]M101.Speed",
+        custom_data={
+            "<<tag>>": "M-101",
+            "<<speed>>": "1450",
+            "<<temperature>>": "58.5",
+            "<<running>>": "1",
+        },
+    )
+    res = GdfSurveyResult(
+        Path("motor_disp.gdf"),
+        "motor_disp",
+        "Motors",
+        "1",
+        items=[eq1],
+        discovered_custom_data_keys=["<<running>>", "<<speed>>", "<<tag>>", "<<temperature>>"],
+    )
+
+    out_html = tmp_path / "motors.html"
+    generate_html_survey([res], out_html)
+    assert out_html.exists()
+    html_text = out_html.read_text(encoding="utf-8")
+    assert "Motor_101" in html_text
+    assert "\\u003c\\u003cspeed\\u003e\\u003e" in html_text or "speed" in html_text
+    assert "PLC_MAIN" in html_text
+

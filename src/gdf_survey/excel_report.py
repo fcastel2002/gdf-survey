@@ -69,7 +69,7 @@ def _build_summary_sheet(wb: openpyxl.Workbook, results: Sequence[GdfSurveyResul
     # Title
     ws.merge_cells("A1:F1")
     title_cell = ws["A1"]
-    title_cell.value = "SCADA EQUIPMENT GENERAL SURVEY - CONSOLIDATED SUMMARY"
+    title_cell.value = "SCADA DISPLAY & EQUIPMENT SURVEY - CONSOLIDATED SUMMARY"
     title_cell.font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     title_cell.fill = PatternFill(start_color=COLOR_TITLE_BG, end_color=COLOR_TITLE_BG, fill_type="solid")
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -79,9 +79,9 @@ def _build_summary_sheet(wb: openpyxl.Workbook, results: Sequence[GdfSurveyResul
         "Sheet / Display",
         "GDF File",
         "Surveyed Layer",
-        "Surveyed Equipment",
-        "Equipment with PT",
-        "Controller Breakdown",
+        "Surveyed Items",
+        "Active Items",
+        "Discovered Custom Data Keys",
     ]
     ws.append([])
     ws.append(headers)
@@ -95,15 +95,14 @@ def _build_summary_sheet(wb: openpyxl.Workbook, results: Sequence[GdfSurveyResul
         cell.border = _thin_border()
 
     for r_idx, res in enumerate(results, start=4):
-        brand_summary = ", ".join(f"{b}: {c}" for b, c in res.brand_counts.items())
-        pt_count = sum(1 for p in res.pumps if p.has_pt == "1")
+        cd_keys_str = ", ".join(res.discovered_custom_data_keys) if res.discovered_custom_data_keys else "(None)"
         row_vals = [
             res.sheet_name,
             res.gdf_path.name,
             res.layer_name,
-            res.total_pumps,
-            pt_count,
-            brand_summary or "(No equipment)",
+            res.total_items,
+            res.active_items,
+            cd_keys_str,
         ]
         ws.append(row_vals)
         ws.row_dimensions[r_idx].height = 20
@@ -128,30 +127,31 @@ def _build_summary_sheet(wb: openpyxl.Workbook, results: Sequence[GdfSurveyResul
 
 
 def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
-    """Build the consolidated sheet with 1 row per pump showing all its configuration properties."""
+    """Build the consolidated sheet with 1 row per equipment/item showing all its configuration properties."""
     clean_title = re.sub(r'[\\/*?:\[\]]', "_", res.sheet_name)[:31]
     ws = wb.create_sheet(title=clean_title)
     ws.views.sheetView[0].showGridLines = True
 
     # 1. Main Banner
-    ws.merge_cells("A1:L1")
+    num_cols = max(5 + len(res.discovered_custom_data_keys), 6)
+    end_col_letter = get_column_letter(num_cols)
+    ws.merge_cells(f"A1:{end_col_letter}1")
     title = ws["A1"]
-    title.value = f"SCADA EQUIPMENT SURVEY - DISPLAY: {res.display_name}.gdf"
+    title.value = f"SCADA DISPLAY SURVEY - DISPLAY: {res.display_name}.gdf"
     title.font = Font(name="Calibri", size=13, bold=True, color="FFFFFF")
     title.fill = PatternFill(start_color=COLOR_TITLE_BG, end_color=COLOR_TITLE_BG, fill_type="solid")
     title.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 36
 
     # 2. Sub-banner
-    ws.merge_cells("A2:L2")
+    ws.merge_cells(f"A2:{end_col_letter}2")
     info = ws["A2"]
-    brand_text = " | ".join(f"{b}: {c}" for b, c in res.brand_counts.items())
-    pt_count = sum(1 for p in res.pumps if p.has_pt == "1")
+    cd_count = len(res.discovered_custom_data_keys)
     info.value = (
         f"Layer: {res.layer_name}   |   "
-        f"Total Surveyed Items: {res.total_pumps}   |   "
-        f"With PT Pressure: {pt_count}   |   "
-        f"Controllers: {brand_text}"
+        f"Total Surveyed Items: {res.total_items}   |   "
+        f"Active: {res.active_items}   |   "
+        f"Custom Data Attributes: {cd_count}"
     )
     info.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
     info.fill = PatternFill(start_color=COLOR_SUBTITLE_BG, end_color=COLOR_SUBTITLE_BG, fill_type="solid")
@@ -161,18 +161,13 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
     # 3. Headers
     headers = [
         "No.",
-        "Equipment",
-        "Tag (<<pozo>>)",
-        "Group (<<bat>>)",
-        "Device (<<dispositivo>>)",
-        "Controller",
-        "Controller Type",
-        "Has PT (<<tienept>>)",
-        "Has TKE (<<tienetke>>)",
-        "Has TKQ (<<tienetkq>>)",
-        "Has SAM (<<tienesam>>)",
-        "Is EXP (<<esexp>>)",
+        "Root ID",
+        "Primary Data Source",
+        "Device",
+        "Controller / Type",
     ]
+    for k in res.discovered_custom_data_keys:
+        headers.append(k)
 
     ws.append([])
     ws.append(headers)
@@ -186,21 +181,23 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
         cell.border = _thin_border()
 
     # 4. Data rows
-    for r_idx, p in enumerate(res.pumps, start=5):
+    for r_idx, item in enumerate(res.items, start=5):
         row_vals = [
-            p.pozo_index,
-            p.well_id,
-            p.pump_code,
-            p.battery,
-            p.device_name,
-            p.controller_brand,
-            p.controller_type,
-            "YES" if p.has_pt == "1" else "NO",
-            "YES" if p.has_tke == "1" else "NO",
-            "YES" if p.has_tkq == "1" else "NO",
-            "YES" if p.has_sam == "1" else "NO",
-            "YES" if p.is_exp == "1" else "NO",
+            item.index,
+            item.root_id,
+            item.primary_source or "-",
+            item.device_name or "-",
+            item.controller_type or "-",
         ]
+        for k in res.discovered_custom_data_keys:
+            raw_v = item.custom_data.get(k, "")
+            if raw_v == "1":
+                row_vals.append("YES")
+            elif raw_v == "0":
+                row_vals.append("NO")
+            else:
+                row_vals.append(raw_v)
+
         ws.append(row_vals)
         ws.row_dimensions[r_idx].height = 20
 
@@ -213,30 +210,24 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
             cell.font = Font(name="Calibri", size=9)
             cell.fill = PatternFill(start_color=zebra, end_color=zebra, fill_type="solid")
 
-            # Column alignments
-            if col_idx in (1, 2, 6, 7, 8, 9, 10, 11, 12):
+            # Alignments
+            if col_idx in (1, 2):
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
 
-            # Controller badge
-            if col_idx == 6 and p.controller_brand in BRAND_COLORS:
-                bg, fg = BRAND_COLORS[p.controller_brand]
-                cell.fill = PatternFill(start_color=bg, end_color=bg, fill_type="solid")
-                cell.font = Font(name="Calibri", size=9, bold=True, color=fg)
-
-            # Yes / No flags styling
-            if col_idx in (8, 9, 10, 11, 12):
-                val = row_vals[col_idx - 1]
-                if val == "YES":
-                    cell.fill = PatternFill(start_color=COLOR_YES_BG, end_color=COLOR_YES_BG, fill_type="solid")
-                    cell.font = Font(name="Calibri", size=9, bold=True, color=COLOR_YES_FG)
-                else:
-                    cell.fill = PatternFill(start_color=COLOR_NO_BG, end_color=COLOR_NO_BG, fill_type="solid")
-                    cell.font = Font(name="Calibri", size=9, color=COLOR_NO_FG)
+            # YES / NO badges
+            if val == "YES":
+                cell.fill = PatternFill(start_color=COLOR_YES_BG, end_color=COLOR_YES_BG, fill_type="solid")
+                cell.font = Font(name="Calibri", size=9, bold=True, color=COLOR_YES_FG)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif val == "NO":
+                cell.fill = PatternFill(start_color=COLOR_NO_BG, end_color=COLOR_NO_BG, fill_type="solid")
+                cell.font = Font(name="Calibri", size=9, color=COLOR_NO_FG)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
 
     end_col = get_column_letter(len(headers))
-    last_row = 4 + len(res.pumps)
+    last_row = 4 + len(res.items)
     ws.auto_filter.ref = f"A4:{end_col}{last_row}"
     ws.freeze_panes = "A5"
 

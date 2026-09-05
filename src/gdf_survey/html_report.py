@@ -339,42 +339,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <h3>Filters</h3>
         <button class="clear-btn" onclick="clearAllFilters()">Clear all</button>
       </div>
-
-      <!-- Facet: Controller -->
-      <div class="facet-group">
-        <div class="facet-title">Controller / Interface</div>
-        <div class="facet-options" id="facet-brands"></div>
-      </div>
-
-      <!-- Facet: Has Line Pressure PT -->
-      <div class="facet-group">
-        <div class="facet-title">Line Pressure (PT)</div>
-        <div class="facet-options" id="facet-pt"></div>
-      </div>
-
-      <!-- Facet: Battery / Group -->
-      <div class="facet-group">
-        <div class="facet-title">Group / Battery</div>
-        <div class="facet-options" id="facet-batteries"></div>
-      </div>
-
-      <!-- Facet: Controller Type -->
-      <div class="facet-group">
-        <div class="facet-title">Controller Type / Model</div>
-        <div class="facet-options" id="facet-types"></div>
-      </div>
-
-      <!-- Facet: SAM Controller -->
-      <div class="facet-group">
-        <div class="facet-title">SAM Controller</div>
-        <div class="facet-options" id="facet-sam"></div>
-      </div>
+      <div id="dynamic-facets-container"></div>
     </div>
 
     <!-- Main Content Table Area -->
     <div class="main-content">
       <div class="search-bar">
-        <input type="text" id="search-input" placeholder="Search by equipment, tag, group, or controller..." oninput="applyFilters()">
+        <input type="text" id="search-input" placeholder="Search by equipment, root ID, device, tag, or values..." oninput="applyFilters()">
       </div>
 
       <div class="active-filters" id="active-filters-bar"></div>
@@ -383,20 +354,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="table-container">
         <table id="main-table">
           <thead>
-            <tr>
-              <th style="width: 40px; text-align: center;">No.</th>
-              <th>Display</th>
-              <th>Equipment</th>
-              <th>Tag (&lt;&lt;pozo&gt;&gt;)</th>
-              <th>Group (&lt;&lt;bat&gt;&gt;)</th>
-              <th>Device (&lt;&lt;dispositivo&gt;&gt;)</th>
-              <th>Controller</th>
-              <th>Controller Type</th>
-              <th style="text-align: center;">Has PT</th>
-              <th style="text-align: center;">Has TKE</th>
-              <th style="text-align: center;">Has TKQ</th>
-              <th style="text-align: center;">Has SAM</th>
-            </tr>
+            <tr id="table-head-row"></tr>
           </thead>
           <tbody id="table-body"></tbody>
         </table>
@@ -405,39 +363,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <div class="footer">
-    Generated automatically by GDF Survey Tool &bull; Offline consolidated equipment survey
+    Generated automatically by GDF Survey Tool &bull; Offline consolidated SCADA survey
   </div>
 
   <script>
     const surveyData = DATA_PLACEHOLDER;
     let selectedScreenFilter = '__ALL__'; // '__ALL__' or screen_id
-    let selectedFacets = {
-      brands: new Set(),
-      pt: new Set(),
-      batteries: new Set(),
-      types: new Set(),
-      sam: new Set()
-    };
+    let selectedFacets = {}; // facetKey -> Set of selected values
 
     function init() {
       // Build screen tabs if multiple displays
       const tabsContainer = document.getElementById('screen-tabs-container');
-      const validScreens = surveyData.filter(s => s.pumps.length > 0);
+      const validScreens = surveyData.filter(s => (s.items || s.pumps || []).length > 0);
 
       if (validScreens.length > 1) {
         tabsContainer.style.display = 'flex';
-        const totalPumpsAll = validScreens.reduce((acc, s) => acc + s.pumps.length, 0);
+        const totalItemsAll = validScreens.reduce((acc, s) => acc + (s.items || s.pumps || []).length, 0);
 
         const allBtn = document.createElement('button');
         allBtn.className = 'screen-tab active';
-        allBtn.textContent = `All Displays (${totalPumpsAll})`;
+        allBtn.textContent = `All Displays (${totalItemsAll})`;
         allBtn.onclick = () => selectScreen('__ALL__', allBtn);
         tabsContainer.appendChild(allBtn);
 
         validScreens.forEach(s => {
           const btn = document.createElement('button');
           btn.className = 'screen-tab';
-          btn.textContent = `${s.sheet_name} (${s.pumps.length})`;
+          const cnt = (s.items || s.pumps || []).length;
+          btn.textContent = `${s.sheet_name} (${cnt})`;
           btn.onclick = () => selectScreen(s.screen_id, btn);
           tabsContainer.appendChild(btn);
         });
@@ -454,102 +407,122 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       updateView();
     }
 
-    function getActivePumpsPool() {
+    function getActivePool() {
       if (selectedScreenFilter === '__ALL__') {
         const pool = [];
         surveyData.forEach(s => {
-          s.pumps.forEach(p => {
+          (s.items || s.pumps || []).forEach(p => {
             pool.push({ ...p, screen: s.sheet_name });
           });
         });
         return pool;
       }
       const s = surveyData.find(d => d.screen_id === selectedScreenFilter) || surveyData[0];
-      return s.pumps.map(p => ({ ...p, screen: s.sheet_name }));
+      return (s.items || s.pumps || []).map(p => ({ ...p, screen: s.sheet_name }));
+    }
+
+    function getActiveCustomDataKeys() {
+      const keysSet = new Set();
+      if (selectedScreenFilter === '__ALL__') {
+        surveyData.forEach(s => (s.custom_data_keys || []).forEach(k => keysSet.add(k)));
+      } else {
+        const s = surveyData.find(d => d.screen_id === selectedScreenFilter) || surveyData[0];
+        (s.custom_data_keys || []).forEach(k => keysSet.add(k));
+      }
+      return Array.from(keysSet);
     }
 
     function updateView() {
-      const pool = getActivePumpsPool();
-      renderKPIs(pool);
-      buildFacetCheckboxes(pool);
+      const pool = getActivePool();
+      const keys = getActiveCustomDataKeys();
+      renderKPIs(pool, keys);
+      renderTableHeader(keys);
+      buildFacetCheckboxes(pool, keys);
       applyFilters();
     }
 
-    function renderKPIs(pool) {
+    function renderKPIs(pool, keys) {
       const kpis = document.getElementById('kpi-row');
-      const ptCount = pool.filter(p => p.has_pt === '1').length;
-      const brandCounts = {};
-      pool.forEach(p => {
-        if (p.controller_brand && p.controller_brand !== 'Desconocido' && p.controller_brand !== 'Unknown') {
-          brandCounts[p.controller_brand] = (brandCounts[p.controller_brand] || 0) + 1;
-        }
-      });
+      const activeCount = pool.filter(p => p.is_active).length;
 
       kpis.innerHTML = `
         <div class="kpi-pill">
           <div class="kpi-num">${pool.length}</div>
-          <div class="kpi-lbl">Active Equipment</div>
+          <div class="kpi-lbl">Total Items</div>
         </div>
         <div class="kpi-pill">
-          <div class="kpi-num" style="color: var(--green);">${ptCount}</div>
-          <div class="kpi-lbl">With PT Pressure</div>
+          <div class="kpi-num" style="color: var(--green);">${activeCount}</div>
+          <div class="kpi-lbl">Active Items</div>
         </div>
-        ${Object.entries(brandCounts).map(([b, c]) => `
-          <div class="kpi-pill">
-            <div class="kpi-num" style="color: #fff;">${c}</div>
-            <div class="kpi-lbl">${b}</div>
-          </div>
-        `).join('')}
+        <div class="kpi-pill">
+          <div class="kpi-num" style="color: var(--accent);">${keys.length}</div>
+          <div class="kpi-lbl">Custom Data Attributes</div>
+        </div>
       `;
     }
 
-    function buildFacetCheckboxes(pool) {
-      // 1. Controllers
-      const brandMap = {};
-      pool.forEach(p => { if (p.controller_brand) brandMap[p.controller_brand] = (brandMap[p.controller_brand] || 0) + 1; });
-      buildFacetGroup('facet-brands', 'brands', Object.entries(brandMap).sort((a,b)=>b[1]-a[1]).map(([b, c]) => ({ label: b, val: b, count: c })));
-
-      // 2. PT
-      const ptYes = pool.filter(p => p.has_pt === '1').length;
-      const ptNo = pool.filter(p => p.has_pt !== '1').length;
-      buildFacetGroup('facet-pt', 'pt', [
-        { label: 'With PT Pressure', val: '1', count: ptYes },
-        { label: 'Without PT Pressure', val: '0', count: ptNo }
-      ]);
-
-      // 3. Batteries
-      const batMap = {};
-      pool.forEach(p => {
-        const b = p.battery || 'Unassigned';
-        batMap[b] = (batMap[b] || 0) + 1;
-      });
-      const batOptions = Object.entries(batMap).sort((a, b) => b[1] - a[1]).map(([b, c]) => ({ label: b, val: b, count: c }));
-      buildFacetGroup('facet-batteries', 'batteries', batOptions);
-
-      // 4. Controller Types
-      const typeMap = {};
-      pool.forEach(p => {
-        const t = p.controller_type || 'Generic';
-        typeMap[t] = (typeMap[t] || 0) + 1;
-      });
-      const typeOptions = Object.entries(typeMap).sort((a, b) => b[1] - a[1]).map(([t, c]) => ({ label: t, val: t, count: c }));
-      buildFacetGroup('facet-types', 'types', typeOptions);
-
-      // 5. SAM
-      const samYes = pool.filter(p => p.has_sam === '1').length;
-      const samNo = pool.filter(p => p.has_sam !== '1').length;
-      buildFacetGroup('facet-sam', 'sam', [
-        { label: 'With SAM', val: '1', count: samYes },
-        { label: 'Without SAM', val: '0', count: samNo }
-      ]);
+    function renderTableHeader(keys) {
+      const tr = document.getElementById('table-head-row');
+      tr.innerHTML = `
+        <th style="width: 40px; text-align: center;">No.</th>
+        <th>Display</th>
+        <th>Root ID</th>
+        <th>Device</th>
+        <th>Controller / Type</th>
+        <th>Primary Source</th>
+      ` + keys.map(k => `<th>${escapeHtml(k)}</th>`).join('');
     }
 
-    function buildFacetGroup(containerId, facetKey, options) {
-      const container = document.getElementById(containerId);
+    function buildFacetCheckboxes(pool, keys) {
+      const container = document.getElementById('dynamic-facets-container');
       container.innerHTML = '';
 
+      // 1. Device facet (if >= 2 distinct devices)
+      const devMap = {};
+      pool.forEach(p => { if (p.device_name && p.device_name !== '-') devMap[p.device_name] = (devMap[p.device_name] || 0) + 1; });
+      if (Object.keys(devMap).length >= 2) {
+        buildFacetGroup('Device', '_device', Object.entries(devMap).sort((a,b)=>b[1]-a[1]).map(([b, c]) => ({ label: b, val: b, count: c })));
+      }
+
+      // 2. Dynamic custom data facets (for keys with discrete distinct values between 2 and 25)
+      keys.forEach(k => {
+        const valMap = {};
+        pool.forEach(p => {
+          const v = (p.custom_data && p.custom_data[k] !== undefined) ? p.custom_data[k] : (p[k] !== undefined ? String(p[k]) : '');
+          if (v) valMap[v] = (valMap[v] || 0) + 1;
+        });
+        const distinctCount = Object.keys(valMap).length;
+        if (distinctCount >= 2 && distinctCount <= 25) {
+          const title = k.replace(/[<>]/g, '').trim() || k;
+          const options = Object.entries(valMap).sort((a,b)=>b[1]-a[1]).map(([val, cnt]) => {
+            let lbl = val;
+            if (val === '1') lbl = 'YES (1)';
+            else if (val === '0') lbl = 'NO (0)';
+            return { label: lbl, val: val, count: cnt };
+          });
+          buildFacetGroup(title, `cd_${k}`, options);
+        }
+      });
+    }
+
+    function buildFacetGroup(groupTitle, facetKey, options) {
+      const container = document.getElementById('dynamic-facets-container');
+      const grp = document.createElement('div');
+      grp.className = 'facet-group';
+
+      const title = document.createElement('div');
+      title.className = 'facet-title';
+      title.textContent = groupTitle;
+      grp.appendChild(title);
+
+      const optsContainer = document.createElement('div');
+      optsContainer.className = 'facet-options';
+
+      if (!selectedFacets[facetKey]) {
+        selectedFacets[facetKey] = new Set();
+      }
+
       options.forEach(opt => {
-        if (opt.count === 0 && facetKey !== 'pt') return;
         const label = document.createElement('label');
         label.className = 'facet-option';
 
@@ -572,59 +545,52 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         label.appendChild(checkbox);
         label.appendChild(nameSpan);
         label.appendChild(countSpan);
-        container.appendChild(label);
+        optsContainer.appendChild(label);
       });
+
+      grp.appendChild(optsContainer);
+      container.appendChild(grp);
     }
 
     function clearAllFilters(rebuild = true) {
-      selectedFacets.brands.clear();
-      selectedFacets.pt.clear();
-      selectedFacets.batteries.clear();
-      selectedFacets.types.clear();
-      selectedFacets.sam.clear();
+      Object.keys(selectedFacets).forEach(k => selectedFacets[k].clear());
       document.getElementById('search-input').value = '';
       if (rebuild) {
-        buildFacetCheckboxes(getActivePumpsPool());
+        const pool = getActivePool();
+        const keys = getActiveCustomDataKeys();
+        buildFacetCheckboxes(pool, keys);
         applyFilters();
       }
     }
 
     function applyFilters() {
-      const pool = getActivePumpsPool();
+      const pool = getActivePool();
+      const keys = getActiveCustomDataKeys();
       const rawSearch = document.getElementById('search-input').value.toLowerCase().trim();
       const searchTerms = rawSearch.split(/\\s+/).filter(Boolean);
 
       const filtered = pool.filter(p => {
-        // Facet 1: Controllers
-        if (selectedFacets.brands.size > 0 && !selectedFacets.brands.has(p.controller_brand)) {
-          return false;
+        // Facet: Device
+        if (selectedFacets['_device'] && selectedFacets['_device'].size > 0) {
+          if (!selectedFacets['_device'].has(p.device_name)) return false;
         }
 
-        // Facet 2: PT
-        if (selectedFacets.pt.size > 0) {
-          const ptVal = (p.has_pt === '1') ? '1' : '0';
-          if (!selectedFacets.pt.has(ptVal)) return false;
+        // Custom data facets
+        for (const [fKey, selSet] of Object.entries(selectedFacets)) {
+          if (fKey.startsWith('cd_') && selSet.size > 0) {
+            const cdKey = fKey.substring(3);
+            const val = (p.custom_data && p.custom_data[cdKey] !== undefined) ? p.custom_data[cdKey] : (p[cdKey] !== undefined ? String(p[cdKey]) : '');
+            if (!selSet.has(val)) return false;
+          }
         }
 
-        // Facet 3: Batteries
-        if (selectedFacets.batteries.size > 0 && !selectedFacets.batteries.has(p.battery)) {
-          return false;
-        }
-
-        // Facet 4: Controller Types
-        if (selectedFacets.types.size > 0 && !selectedFacets.types.has(p.controller_type)) {
-          return false;
-        }
-
-        // Facet 5: SAM
-        if (selectedFacets.sam.size > 0) {
-          const samVal = (p.has_sam === '1') ? '1' : '0';
-          if (!selectedFacets.sam.has(samVal)) return false;
-        }
-
-        // Search text matching (AND logic across all search tokens)
+        // Search text matching across all properties and custom data
         if (searchTerms.length > 0) {
-          const searchable = `${p.screen || ''} ${p.well_id || ''} ${p.pump_code || ''} ${p.battery || ''} ${p.device_name || ''} ${p.controller_brand || ''} ${p.controller_type || ''}`.toLowerCase();
+          let cdTokens = '';
+          if (p.custom_data) {
+            cdTokens = Object.values(p.custom_data).join(' ');
+          }
+          const searchable = `${p.screen || ''} ${p.root_id || p.well_id || ''} ${p.device_name || ''} ${p.controller_type || ''} ${p.primary_source || ''} ${cdTokens}`.toLowerCase();
           const allMatch = searchTerms.every(term => searchable.includes(term));
           if (!allMatch) return false;
         }
@@ -633,14 +599,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       });
 
       renderActiveChips();
-      renderTableRows(filtered, pool.length);
+      renderTableRows(filtered, pool.length, keys);
     }
 
     function renderActiveChips() {
       const bar = document.getElementById('active-filters-bar');
       bar.innerHTML = '';
 
-      const pool = getActivePumpsPool();
+      const pool = getActivePool();
+      const keys = getActiveCustomDataKeys();
       const addChip = (text, removeFn) => {
         const chip = document.createElement('div');
         chip.className = 'filter-chip';
@@ -652,11 +619,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         bar.appendChild(chip);
       };
 
-      selectedFacets.brands.forEach(b => addChip(`Controller: ${b}`, () => { selectedFacets.brands.delete(b); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.pt.forEach(v => addChip(`PT: ${v === '1' ? 'With PT' : 'Without PT'}`, () => { selectedFacets.pt.delete(v); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.batteries.forEach(b => addChip(`Group: ${b}`, () => { selectedFacets.batteries.delete(b); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.types.forEach(t => addChip(`Type: ${t}`, () => { selectedFacets.types.delete(t); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.sam.forEach(v => addChip(`SAM: ${v === '1' ? 'With SAM' : 'Without SAM'}`, () => { selectedFacets.sam.delete(v); buildFacetCheckboxes(pool); applyFilters(); }));
+      for (const [fKey, selSet] of Object.entries(selectedFacets)) {
+        if (selSet.size > 0) {
+          const title = fKey.startsWith('cd_') ? fKey.substring(3).replace(/[<>]/g, '') : 'Device';
+          selSet.forEach(val => {
+            addChip(`${title}: ${val}`, () => {
+              selSet.delete(val);
+              buildFacetCheckboxes(pool, keys);
+              applyFilters();
+            });
+          });
+        }
+      }
 
       const q = document.getElementById('search-input').value.trim();
       if (q) {
@@ -664,38 +638,41 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
-    function renderTableRows(pumps, totalPoolCount) {
-      document.getElementById('results-count').textContent = `Showing ${pumps.length} of ${totalPoolCount} surveyed items`;
+    function renderTableRows(items, totalPoolCount, keys) {
+      document.getElementById('results-count').textContent = `Showing ${items.length} of ${totalPoolCount} surveyed items`;
 
       const tbody = document.getElementById('table-body');
       tbody.innerHTML = '';
 
-      if (pumps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; padding: 40px; color: var(--text-muted);">No equipment matching the filter criteria.</td></tr>`;
+      if (items.length === 0) {
+        const totalCols = 6 + keys.length;
+        tbody.innerHTML = `<tr><td colspan="${totalCols}" style="text-align: center; padding: 40px; color: var(--text-muted);">No items matching the filter criteria.</td></tr>`;
         return;
       }
 
-      pumps.forEach((p, idx) => {
+      items.forEach((p, idx) => {
         const tr = document.createElement('tr');
-
-        let brandBadge = `<span class="badge badge-highlight">${escapeHtml(p.controller_brand || 'Generic')}</span>`;
-
-        const flag = (val) => val === '1' ? '<span class="flag-yes">YES</span>' : '<span class="flag-no">NO</span>';
-
-        tr.innerHTML = `
+        let cells = `
           <td style="text-align: center; color: var(--text-muted);">${idx + 1}</td>
           <td style="color: var(--accent); font-weight: 600;">${escapeHtml(p.screen || '-')}</td>
-          <td style="font-weight: 700;">${escapeHtml(p.well_id || p.pozo_label)}</td>
-          <td style="font-weight: 600; color: var(--accent);">${escapeHtml(p.pump_code || '-')}</td>
-          <td><span style="background: rgba(51, 65, 85, 0.4); padding: 2px 6px; border-radius: 4px;">${escapeHtml(p.battery || '-')}</span></td>
-          <td style="font-family: ui-monospace, monospace; font-size: 11px;">${escapeHtml(p.device_name || '-')}</td>
-          <td>${brandBadge}</td>
-          <td style="color: var(--text-muted);">${escapeHtml(p.controller_type || '-')}</td>
-          <td style="text-align: center;">${flag(p.has_pt)}</td>
-          <td style="text-align: center;">${flag(p.has_tke)}</td>
-          <td style="text-align: center;">${flag(p.has_tkq)}</td>
-          <td style="text-align: center;">${flag(p.has_sam)}</td>
+          <td style="font-weight: 700;">${escapeHtml(p.root_id || p.well_id || p.pozo_label || '-')}</td>
+          <td><span style="background: rgba(51, 65, 85, 0.4); padding: 2px 6px; border-radius: 4px;">${escapeHtml(p.device_name || '-')}</span></td>
+          <td style="color: var(--text-muted);">${escapeHtml(p.controller_type || p.controller_brand || '-')}</td>
+          <td style="font-family: ui-monospace, monospace; font-size: 11px;">${escapeHtml(p.primary_source || '-')}</td>
         `;
+
+        keys.forEach(k => {
+          const v = (p.custom_data && p.custom_data[k] !== undefined) ? p.custom_data[k] : (p[k] !== undefined ? String(p[k]) : '-');
+          if (v === '1' || v === 'YES' || v === 'SÍ') {
+            cells += `<td style="text-align: center;"><span class="flag-yes">YES</span></td>`;
+          } else if (v === '0' || v === 'NO') {
+            cells += `<td style="text-align: center;"><span class="flag-no">NO</span></td>`;
+          } else {
+            cells += `<td>${escapeHtml(v)}</td>`;
+          }
+        });
+
+        tr.innerHTML = cells;
         tbody.appendChild(tr);
       });
     }
@@ -715,39 +692,46 @@ def generate_html_survey(
     results: Sequence[GdfSurveyResult],
     output_path: str | Path,
 ) -> Path:
-    """Generate a standalone interactive HTML survey report with BestBuy-style faceted filters."""
+    """Generate a standalone interactive HTML survey report with dynamic faceted filters."""
     target_path = Path(output_path).resolve()
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     serialized = []
     for idx, res in enumerate(results):
         screen_id = f"screen_{idx}_{res.gdf_path.stem}"
+        items_payload = []
+        for it in res.items:
+            items_payload.append({
+                "index": it.index,
+                "root_id": it.root_id,
+                "label": it.label,
+                "device_name": it.device_name,
+                "controller_type": it.controller_type,
+                "primary_source": it.primary_source,
+                "is_active": it.is_active,
+                "custom_data": it.custom_data,
+                "well_id": it.root_id,
+                "pozo_label": it.label,
+                "pump_code": it.pump_code,
+                "battery": it.battery,
+                "controller_brand": it.controller_brand,
+                "has_pt": it.has_pt,
+                "has_tke": it.has_tke,
+                "has_tkq": it.has_tkq,
+                "has_sam": it.has_sam,
+                "is_exp": it.is_exp,
+            })
+
         serialized.append({
             "screen_id": screen_id,
             "display_name": res.display_name,
             "sheet_name": res.sheet_name,
             "layer_name": res.layer_name,
-            "total_pumps": res.total_pumps,
-            "brand_counts": res.brand_counts,
-            "pumps": [
-                {
-                    "pozo_index": p.pozo_index,
-                    "pozo_label": p.pozo_label,
-                    "well_id": p.well_id,
-                    "pump_code": p.pump_code,
-                    "battery": p.battery,
-                    "device_name": p.device_name,
-                    "controller_brand": p.controller_brand,
-                    "controller_type": p.controller_type,
-                    "has_pt": p.has_pt,
-                    "has_tke": p.has_tke,
-                    "has_tkq": p.has_tkq,
-                    "has_sam": p.has_sam,
-                    "is_exp": p.is_exp,
-                    "is_active": p.is_active,
-                }
-                for p in res.pumps
-            ],
+            "total_items": res.total_items,
+            "total_pumps": res.total_items,
+            "custom_data_keys": res.discovered_custom_data_keys,
+            "items": items_payload,
+            "pumps": items_payload,
         })
 
     json_payload = json.dumps(serialized, ensure_ascii=False)

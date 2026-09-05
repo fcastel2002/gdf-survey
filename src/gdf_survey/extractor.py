@@ -1,18 +1,20 @@
-"""GDF Layer and Pump Survey extraction engine."""
+"""Generic GDF Layer and Equipment/Object Survey extraction engine."""
 
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 from pathlib import Path
+from typing import Sequence
 
 from graphworx32_gdf_parser import parse_gdf
 from graphworx32_gdf_parser.screen import clean_expression
 
 from gdf_survey.models import (
+    EquipmentRecord,
     GdfSurveyResult,
-    PumpRecord,
     ScreenObjectRecord,
-    classify_device_type,
+    extract_device_info,
 )
 
 _clean_val = clean_expression
@@ -22,8 +24,22 @@ def extract_gdf_survey(
     gdf_path: str | Path,
     layer_target: str = "1",
     sheet_name: str | None = None,
+    root_name_pattern: str | None = None,
+    root_custom_data: str | None = None,
+    custom_data_filter: Sequence[str] | None = None,
+    flat: bool = False,
 ) -> GdfSurveyResult:
-    """Extract all objects, custom data, data sources, and consolidated equipment records from GDF."""
+    """Extract and consolidate SCADA equipment, dynamic objects, and custom data from GDF.
+
+    Args:
+        gdf_path: Path to the GraphWorX32 .gdf file.
+        layer_target: Layer symbol or number to inspect (e.g. "1").
+        sheet_name: Custom sheet/display name for reporting.
+        root_name_pattern: Regex pattern with capture group 1 to group objects by root name.
+        root_custom_data: Custom data key used to anchor root entities (e.g. "<<tag>>").
+        custom_data_filter: Optional sequence of custom data keys to include in report.
+        flat: If True, each visual/dynamic object is treated individually without grouping.
+    """
     path = Path(gdf_path).resolve(strict=True)
 
     parsed = parse_gdf(path, profiles=("screen",), layer_target=layer_target)
@@ -32,136 +48,159 @@ def extract_gdf_survey(
         details = "; ".join(errors) if errors else "input could not be inspected"
         raise ValueError(f"Failed to parse GDF {path.name}: {details}")
 
+    derived_sheet = sheet_name or path.stem
     screen = parsed.document.screen
     if screen is None or not screen.layers:
-        derived_sheet = sheet_name or path.stem
         return GdfSurveyResult(
             gdf_path=path,
             display_name=path.stem,
             sheet_name=derived_sheet,
             layer_name=layer_target,
             objects=[],
-            pumps=[],
+            items=[],
+            discovered_custom_data_keys=[],
         )
 
     selected_layer = screen.selected_layer or layer_target
 
     all_objects: list[ScreenObjectRecord] = []
-    for raw in screen.objects:
-        name = raw.object_name
-        pozo_m = re.search(r"(?:pozo|item|eq|unit)(\d+)", name, re.IGNORECASE)
-        pozo_idx = int(pozo_m.group(1)) if pozo_m else 0
+    discovered_keys_set: set[str] = set()
 
-        rec = ScreenObjectRecord(
-            index=raw.index,
-            pozo_index=pozo_idx,
-            pozo_label=f"Equipo {pozo_idx}" if pozo_idx else "General",
-            object_name=name,
-            custom_data=raw.custom_data,
-            data_source=raw.data_source,
-            dynamic_type=raw.dynamic_type,
-            layer=selected_layer,
-        )
-        all_objects.append(rec)
+    # Strategy 1: Flat mode (1 record per raw dynamic object)
+    if flat:
+        items: list[EquipmentRecord] = []
+        for idx, raw in enumerate(screen.objects, start=1):
+            clean_source = _clean_val(raw.data_source)
+            rec = ScreenObjectRecord(
+                index=raw.index,
+                root_id=raw.object_name,
+                object_name=raw.object_name,
+                custom_data=raw.custom_data,
+                data_source=clean_source,
+                dynamic_type=raw.dynamic_type,
+                layer=selected_layer,
+                description=raw.description,
+            )
+            all_objects.append(rec)
 
-    # Group into consolidated equipment
-    pozo_groups: dict[int, list[ScreenObjectRecord]] = {}
-    for obj in all_objects:
-        if obj.pozo_index:
-            pozo_groups.setdefault(obj.pozo_index, []).append(obj)
+            cd_map: dict[str, str] = {}
+            if raw.custom_data:
+                cd_map[raw.custom_data] = clean_source
+                discovered_keys_set.add(raw.custom_data)
 
-    pumps: list[PumpRecord] = []
-    for p_idx in sorted(pozo_groups):
-        items = {o.custom_data: o for o in pozo_groups[p_idx]}
-        disp_obj = items.get("<<dispositivo>>")
-        pozo_obj = items.get("<<pozo>>")
-        bat_obj = items.get("<<bat>>")
-        pt_obj = items.get("<<tienept>>")
-        tke_obj = items.get("<<tienetke>>")
-        tkq_obj = items.get("<<tienetkq>>")
-        sam_obj = items.get("<<tienesam>>")
-        exp_obj = items.get("<<esexp>>")
+            dev_name, ctrl_type = extract_device_info(clean_source)
+            is_active = bool(clean_source and clean_source != "x=0")
 
-        disp_val = _clean_val(disp_obj.data_source if disp_obj else "")
-        pozo_val = _clean_val(pozo_obj.data_source if pozo_obj else "")
-        bat_val = _clean_val(bat_obj.data_source if bat_obj else "")
-        pt_val = _clean_val(pt_obj.data_source if pt_obj else "0")
-        tke_val = _clean_val(tke_obj.data_source if tke_obj else "0")
-        tkq_val = _clean_val(tkq_obj.data_source if tkq_obj else "0")
-        sam_val = _clean_val(sam_obj.data_source if sam_obj else "0")
-        exp_val = _clean_val(exp_obj.data_source if exp_obj else "0")
+            eq = EquipmentRecord(
+                index=idx,
+                root_id=raw.object_name,
+                label=raw.object_name,
+                device_name=dev_name,
+                controller_type=ctrl_type,
+                primary_source=clean_source,
+                is_active=is_active,
+                layer=selected_layer,
+                custom_data=cd_map,
+                objects=[rec],
+            )
+            items.append(eq)
 
-        # Active check: has non-empty device, not x=0, not placeholder itemXX_dispXX
-        is_active = bool(
-            disp_val
-            and disp_val != "x=0"
-            and not re.search(r"(?:pozo|item|disp)\d+_(?:disp|item)\d+", disp_val, re.IGNORECASE)
-            and pozo_val
-            and pozo_val != "x=0"
-        )
+    # Strategy 2: Grouping mode (grouping by root name pattern or root custom data)
+    else:
+        # Determine effective regex pattern
+        pattern = root_name_pattern or r"^([A-Za-z0-9_-]+?)(?:_|\.|$)"
 
-        well_id = ""
-        device_name = ""
-        controller_brand = "Desconocido"
-        controller_type = ""
+        # Pre-pass: if root_custom_data is specified, find anchor prefixes
+        anchor_prefixes: set[str] = set()
+        if root_custom_data:
+            for raw in screen.objects:
+                if raw.custom_data == root_custom_data:
+                    m = re.search(pattern, raw.object_name)
+                    prefix = m.group(1) if m and m.groups() else (m.group(0) if m else raw.object_name)
+                    anchor_prefixes.add(prefix)
 
-        if is_active:
-            if "." in disp_val:
-                parts = disp_val.split(".", 1)
-                m_well = re.search(r"([A-Za-z0-9_]+)", parts[0])
-                well_id = m_well.group(1) if m_well else parts[0]
-                device_name = parts[1]
-                controller_brand, controller_type = classify_device_type(device_name)
+        # Build object records and group them
+        groups: OrderedDict[str, list[ScreenObjectRecord]] = OrderedDict()
+
+        for raw in screen.objects:
+            m = re.search(pattern, raw.object_name)
+            root_key = m.group(1) if m and m.groups() else (m.group(0) if m else raw.object_name)
+
+            rec = ScreenObjectRecord(
+                index=raw.index,
+                root_id=root_key,
+                object_name=raw.object_name,
+                custom_data=raw.custom_data,
+                data_source=_clean_val(raw.data_source),
+                dynamic_type=raw.dynamic_type,
+                layer=selected_layer,
+                description=raw.description,
+            )
+            all_objects.append(rec)
+            groups.setdefault(root_key, []).append(rec)
+
+        items = []
+        for idx, (root_key, grp_objects) in enumerate(groups.items(), start=1):
+            cd_map = {}
+            for o in grp_objects:
+                if o.custom_data:
+                    cd_map[o.custom_data] = o.data_source
+                    discovered_keys_set.add(o.custom_data)
+
+            # Determine primary data source
+            primary_source = ""
+            if root_custom_data and root_custom_data in cd_map:
+                primary_source = cd_map[root_custom_data]
             else:
-                well_id = f"EQ_{p_idx:02d}"
-                device_name = disp_val
-                controller_brand, controller_type = classify_device_type(device_name)
-        else:
-            well_id = f"EQ_{p_idx:02d}"
+                for pref in ("<<dispositivo>>", "<<device>>", "<<tag>>", "<<source>>", "<<name>>"):
+                    if pref in cd_map:
+                        primary_source = cd_map[pref]
+                        break
+                if not primary_source:
+                    for o in grp_objects:
+                        if o.data_source and o.data_source != "x=0":
+                            primary_source = o.data_source
+                            break
 
-        cd_map = {
-            o.custom_data: _clean_val(o.data_source)
-            for o in pozo_groups[p_idx]
-            if o.custom_data
-        }
+            dev_name, ctrl_type = extract_device_info(primary_source)
 
-        pump = PumpRecord(
-            pozo_index=p_idx,
-            pozo_label=f"Equipo {p_idx}",
-            well_id=well_id,
-            pump_code=pozo_val,
-            battery=bat_val,
-            device_name=device_name,
-            controller_brand=controller_brand,
-            controller_type=controller_type,
-            has_pt=pt_val,
-            has_tke=tke_val,
-            has_tkq=tkq_val,
-            has_sam=sam_val,
-            is_exp=exp_val,
-            is_active=is_active,
-            layer=selected_layer,
-            custom_data_map=cd_map,
-        )
-        pumps.append(pump)
+            # Active check
+            is_active = bool(
+                primary_source
+                and primary_source != "x=0"
+                and not re.search(r"(?:item|disp)\d+_(?:disp|item)\d+", primary_source, re.IGNORECASE)
+            )
 
-    # Exclude x=0 and template spares
-    real_pumps = [p for p in pumps if p.is_active]
-    for idx_num, p in enumerate(real_pumps, start=1):
-        p.pozo_index = idx_num
-        p.pozo_label = f"Equipo {idx_num}"
+            eq = EquipmentRecord(
+                index=idx,
+                root_id=root_key,
+                label=root_key,
+                device_name=dev_name,
+                controller_type=ctrl_type,
+                primary_source=primary_source,
+                is_active=is_active,
+                layer=selected_layer,
+                custom_data=cd_map,
+                objects=grp_objects,
+            )
+            items.append(eq)
 
-    disp_name = path.stem
-    derived_sheet = sheet_name
-    if not derived_sheet:
-        m_area = re.search(r"(?:equipos_|pantalla_|display_|area_)([A-Za-z0-9]+)", disp_name, re.IGNORECASE)
-        derived_sheet = m_area.group(1) if m_area else disp_name
+    # Filter custom data keys if specified
+    all_discovered = sorted(discovered_keys_set)
+    if custom_data_filter:
+        allowed = set(custom_data_filter)
+        final_keys = [k for k in all_discovered if k in allowed]
+        for it in items:
+            it.custom_data = {k: v for k, v in it.custom_data.items() if k in allowed}
+    else:
+        final_keys = all_discovered
 
     return GdfSurveyResult(
         gdf_path=path,
-        display_name=disp_name,
+        display_name=path.stem,
         sheet_name=derived_sheet,
         layer_name=selected_layer,
         objects=all_objects,
-        pumps=real_pumps,
+        items=items,
+        discovered_custom_data_keys=final_keys,
     )

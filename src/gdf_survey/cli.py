@@ -41,6 +41,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Layer to survey (default: 1 or '1-ALM')",
     )
     parser.add_argument(
+        "-r",
+        "--root-name-pattern",
+        default=None,
+        help="Regex pattern with capture group 1 to group objects by root name (default: '^([A-Za-z0-9_-]+?)(?:[_.]|$)')",
+    )
+    parser.add_argument(
+        "--root-custom-data",
+        default=None,
+        help="Custom data key to identify/anchor each root entity (e.g. '<<tag>>' or '<<device>>')",
+    )
+    parser.add_argument(
+        "--custom-data",
+        default=None,
+        help="Comma-separated list of custom data keys to include in report (default: all discovered keys)",
+    )
+    parser.add_argument(
+        "--flat",
+        action="store_true",
+        help="Survey each visual/dynamic object individually without grouping",
+    )
+    parser.add_argument(
         "-n",
         "--name",
         default=None,
@@ -169,7 +190,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.name:
         custom_names = [n.strip() for n in args.name.split(",")]
 
-    # 3. Extract each GDF
+    # 3. Parse custom data filter if provided
+    cd_filter = [k.strip() for k in args.custom_data.split(",")] if args.custom_data else None
+
+    # 4. Extract each GDF
     results: list[GdfSurveyResult] = []
     had_errors = False
     for i, path in enumerate(unique_paths):
@@ -180,7 +204,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             sheet_name = m_area.group(1) if m_area else path.stem
 
         try:
-            res = extract_gdf_survey(path, layer_target=args.layer, sheet_name=sheet_name)
+            res = extract_gdf_survey(
+                path,
+                layer_target=args.layer,
+                sheet_name=sheet_name,
+                root_name_pattern=args.root_name_pattern,
+                root_custom_data=args.root_custom_data,
+                custom_data_filter=cd_filter,
+                flat=args.flat,
+            )
             results.append(res)
         except Exception as err:
             had_errors = True
@@ -189,7 +221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stderr.write("Error: Could not process any .gdf file successfully.\n")
         return 1
 
-    # 4. Determine base name and resolve output paths
+    # 5. Determine base name and resolve output paths
     default_name = f"survey_{custom_names[0]}" if custom_names else f"survey_{results[0].sheet_name}"
     excel_path, html_path = _resolve_output_paths(
         args.output_dir,
@@ -206,7 +238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.no_html:
         actual_html = generate_html_survey(results, html_path)
 
-    # 5. Print Console Summary
+    # 6. Print Console Summary
     if not args.quiet:
         print("\n" + "=" * 70)
         print(" GDF SCADA SCREEN & EQUIPMENT SURVEY")
@@ -215,11 +247,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         for res in results:
             print(f"\nDisplay:  {res.gdf_path.name}  (Sheet: {res.sheet_name})")
             print(f"Layer:    {res.layer_name}")
-            print(f"Total:    {res.total_pumps} records ({res.active_pumps} active, {res.spare_pumps} spare/template)")
+            print(f"Items:    {res.total_items} surveyed ({res.active_items} active, {res.spare_items} spare/template)")
 
-            if res.brand_counts:
-                brands = ", ".join(f"{b}: {c}" for b, c in res.brand_counts.items())
-                print(f"Controllers: {brands}")
+            if res.discovered_custom_data_keys:
+                keys_str = ", ".join(res.discovered_custom_data_keys)
+                print(f"Custom Data: {keys_str}")
 
         print("\n" + "-" * 70)
         if actual_excel:
