@@ -63,25 +63,25 @@ def generate_excel_survey(
 
 
 def _build_summary_sheet(wb: openpyxl.Workbook, results: Sequence[GdfSurveyResult]) -> None:
-    ws = wb.create_sheet(title="Resumen General")
+    ws = wb.create_sheet(title="General Summary")
     ws.views.sheetView[0].showGridLines = True
 
     # Title
     ws.merge_cells("A1:F1")
     title_cell = ws["A1"]
-    title_cell.value = "RELEVAMIENTO GENERAL DE EQUIPOS SCADA - RESUMEN CONSOLIDADO"
+    title_cell.value = "SCADA EQUIPMENT GENERAL SURVEY - CONSOLIDATED SUMMARY"
     title_cell.font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     title_cell.fill = PatternFill(start_color=COLOR_TITLE_BG, end_color=COLOR_TITLE_BG, fill_type="solid")
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 36
 
     headers = [
-        "Hoja / Pantalla",
-        "Archivo GDF",
-        "Capa Relevada",
-        "Equipos Relevados",
-        "Equipos con PT",
-        "Desglose por Controlador",
+        "Sheet / Display",
+        "GDF File",
+        "Surveyed Layer",
+        "Surveyed Equipment",
+        "Equipment with PT",
+        "Controller Breakdown",
     ]
     ws.append([])
     ws.append(headers)
@@ -103,7 +103,7 @@ def _build_summary_sheet(wb: openpyxl.Workbook, results: Sequence[GdfSurveyResul
             res.layer_name,
             res.total_pumps,
             pt_count,
-            brand_summary or "(Sin bombas)",
+            brand_summary or "(No equipment)",
         ]
         ws.append(row_vals)
         ws.row_dimensions[r_idx].height = 20
@@ -136,7 +136,7 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
     # 1. Main Banner
     ws.merge_cells("A1:L1")
     title = ws["A1"]
-    title.value = f"RELEVAMIENTO DE BOMBAS PCP - PANTALLA: {res.display_name}.gdf"
+    title.value = f"SCADA EQUIPMENT SURVEY - DISPLAY: {res.display_name}.gdf"
     title.font = Font(name="Calibri", size=13, bold=True, color="FFFFFF")
     title.fill = PatternFill(start_color=COLOR_TITLE_BG, end_color=COLOR_TITLE_BG, fill_type="solid")
     title.alignment = Alignment(horizontal="center", vertical="center")
@@ -148,10 +148,10 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
     brand_text = " | ".join(f"{b}: {c}" for b, c in res.brand_counts.items())
     pt_count = sum(1 for p in res.pumps if p.has_pt == "1")
     info.value = (
-        f"Capa: {res.layer_name}   |   "
-        f"Total Equipos Relevados: {res.total_pumps}   |   "
-        f"Con Presión PT: {pt_count}   |   "
-        f"Controladores: {brand_text}"
+        f"Layer: {res.layer_name}   |   "
+        f"Total Surveyed Items: {res.total_pumps}   |   "
+        f"With PT Pressure: {pt_count}   |   "
+        f"Controllers: {brand_text}"
     )
     info.font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
     info.fill = PatternFill(start_color=COLOR_SUBTITLE_BG, end_color=COLOR_SUBTITLE_BG, fill_type="solid")
@@ -160,18 +160,18 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
 
     # 3. Headers
     headers = [
-        "N°",
-        "Equipo",
+        "No.",
+        "Equipment",
         "Tag (<<pozo>>)",
-        "Grupo (<<bat>>)",
-        "Dispositivo (<<dispositivo>>)",
-        "Controlador",
-        "Tipo de Controlador",
-        "Tiene PT (<<tienept>>)",
-        "Tiene TKE (<<tienetke>>)",
-        "Tiene TKQ (<<tienetkq>>)",
-        "Tiene SAM (<<tienesam>>)",
-        "Es EXP (<<esexp>>)",
+        "Group (<<bat>>)",
+        "Device (<<dispositivo>>)",
+        "Controller",
+        "Controller Type",
+        "Has PT (<<tienept>>)",
+        "Has TKE (<<tienetke>>)",
+        "Has TKQ (<<tienetkq>>)",
+        "Has SAM (<<tienesam>>)",
+        "Is EXP (<<esexp>>)",
     ]
 
     ws.append([])
@@ -195,11 +195,11 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
             p.device_name,
             p.controller_brand,
             p.controller_type,
-            "SÍ" if p.has_pt == "1" else "NO",
-            "SÍ" if p.has_tke == "1" else "NO",
-            "SÍ" if p.has_tkq == "1" else "NO",
-            "SÍ" if p.has_sam == "1" else "NO",
-            "SÍ" if p.is_exp == "1" else "NO",
+            "YES" if p.has_pt == "1" else "NO",
+            "YES" if p.has_tke == "1" else "NO",
+            "YES" if p.has_tkq == "1" else "NO",
+            "YES" if p.has_sam == "1" else "NO",
+            "YES" if p.is_exp == "1" else "NO",
         ]
         ws.append(row_vals)
         ws.row_dimensions[r_idx].height = 20
@@ -228,7 +228,7 @@ def _build_pumps_sheet(wb: openpyxl.Workbook, res: GdfSurveyResult) -> None:
             # Yes / No flags styling
             if col_idx in (8, 9, 10, 11, 12):
                 val = row_vals[col_idx - 1]
-                if val == "SÍ":
+                if val == "YES":
                     cell.fill = PatternFill(start_color=COLOR_YES_BG, end_color=COLOR_YES_BG, fill_type="solid")
                     cell.font = Font(name="Calibri", size=9, bold=True, color=COLOR_YES_FG)
                 else:

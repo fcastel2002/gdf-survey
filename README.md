@@ -4,7 +4,7 @@ Automated survey, layer discovery, equipment classification, and reporting tool 
 
 ## Features
 
-- **Automated Screen Inspection**: Analyzes `.gdf` displays using `graphworx32-gdf-parser` without requiring GraphWorX32 or Windows COM services.
+- **Automated Screen Inspection**: Analyzes `.gdf` displays using [`graphworx32-gdf-parser`](https://github.com/fcastel2002/graphworx32-gdf-parser) without requiring GraphWorX32 or Windows COM services.
 - **Layer & Object Discovery**: Enumerates screen layers, dynamic visibility/size objects, and linked OPC data source tags.
 - **Equipment & Device Classification**: Correlates device tags, identifies controller and communication interfaces, and consolidates multi-tag equipment records.
 - **Dual Reporting**: Generates interactive HTML dashboards with equipment cards and formatted Excel multi-sheet survey workbooks via `openpyxl`.
@@ -12,21 +12,21 @@ Automated survey, layer discovery, equipment classification, and reporting tool 
 ## Installation
 
 ```bash
-pip install -e ../graphworx32-gdf-parser
+pip install git+https://github.com/fcastel2002/graphworx32-gdf-parser.git
 pip install -e .
 ```
 
 ## Usage
 
 ```bash
-# Single display to default relevamientos/ directory
-gdf-survey pantalla.gdf --name=Planta1
+# Single display to default surveys/ directory
+gdf-survey display.gdf --name=Area1
 
 # Multiple displays to an output directory
-gdf-survey pantallas/*.gdf --output-dir=informes/
+gdf-survey displays/*.gdf --output-dir=reports/
 
 # Custom Excel and HTML destinations
-gdf-survey pantalla.gdf -x reporte.xlsx -t reporte.html
+gdf-survey display.gdf -x report.xlsx -t report.html
 ```
 
 ## License

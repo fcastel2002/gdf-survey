@@ -9,11 +9,11 @@ from typing import Sequence
 from gdf_survey.models import GdfSurveyResult
 
 HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Relevamiento de Bombas PCP - SCADA GraphWorX</title>
+  <title>SCADA Equipment Survey - GraphWorX32</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -323,8 +323,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <div class="header">
     <div>
-      <h1>Relevamiento de Equipos SCADA - GraphWorX</h1>
-      <div class="subtitle" id="display-subtitle">Relevamiento consolidado por equipo (sin renglones de reserva)</div>
+      <h1>SCADA Equipment Survey - GraphWorX32</h1>
+      <div class="subtitle" id="display-subtitle">Consolidated equipment survey (excluding spare rows)</div>
     </div>
   </div>
 
@@ -336,37 +336,37 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <!-- BestBuy-style Faceted Sidebar -->
     <div class="sidebar">
       <div class="sidebar-header">
-        <h3>Filtros</h3>
-        <button class="clear-btn" onclick="clearAllFilters()">Limpiar todo</button>
+        <h3>Filters</h3>
+        <button class="clear-btn" onclick="clearAllFilters()">Clear all</button>
       </div>
 
-      <!-- Facet: Controlador -->
+      <!-- Facet: Controller -->
       <div class="facet-group">
-        <div class="facet-title">Controlador / Interfaz</div>
+        <div class="facet-title">Controller / Interface</div>
         <div class="facet-options" id="facet-brands"></div>
       </div>
 
-      <!-- Facet: Tiene Presión PT -->
+      <!-- Facet: Has Line Pressure PT -->
       <div class="facet-group">
-        <div class="facet-title">Presión de Línea (PT)</div>
+        <div class="facet-title">Line Pressure (PT)</div>
         <div class="facet-options" id="facet-pt"></div>
       </div>
 
-      <!-- Facet: Batería -->
+      <!-- Facet: Battery / Group -->
       <div class="facet-group">
-        <div class="facet-title">Grupo / Batería</div>
+        <div class="facet-title">Group / Battery</div>
         <div class="facet-options" id="facet-batteries"></div>
       </div>
 
-      <!-- Facet: Tipo de Controlador -->
+      <!-- Facet: Controller Type -->
       <div class="facet-group">
-        <div class="facet-title">Tipo / Modelo Controlador</div>
+        <div class="facet-title">Controller Type / Model</div>
         <div class="facet-options" id="facet-types"></div>
       </div>
 
       <!-- Facet: SAM Controller -->
       <div class="facet-group">
-        <div class="facet-title">Controlador SAM</div>
+        <div class="facet-title">SAM Controller</div>
         <div class="facet-options" id="facet-sam"></div>
       </div>
     </div>
@@ -374,28 +374,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <!-- Main Content Table Area -->
     <div class="main-content">
       <div class="search-bar">
-        <input type="text" id="search-input" placeholder="Buscar por equipo, tag, grupo o controlador..." oninput="applyFilters()">
+        <input type="text" id="search-input" placeholder="Search by equipment, tag, group, or controller..." oninput="applyFilters()">
       </div>
 
       <div class="active-filters" id="active-filters-bar"></div>
-      <div class="results-count" id="results-count">Mostrando 0 equipos</div>
+      <div class="results-count" id="results-count">Showing 0 items</div>
 
       <div class="table-container">
         <table id="main-table">
           <thead>
             <tr>
-              <th style="width: 40px; text-align: center;">N°</th>
-              <th>Pantalla</th>
-              <th>Equipo</th>
-              <th>Tag (<<pozo>>)</th>
-              <th>Grupo (<<bat>>)</th>
-              <th>Dispositivo (<<dispositivo>>)</th>
-              <th>Controlador</th>
-              <th>Tipo de Controlador</th>
-              <th style="text-align: center;">Tiene PT</th>
-              <th style="text-align: center;">Tiene TKE</th>
-              <th style="text-align: center;">Tiene TKQ</th>
-              <th style="text-align: center;">Tiene SAM</th>
+              <th style="width: 40px; text-align: center;">No.</th>
+              <th>Display</th>
+              <th>Equipment</th>
+              <th>Tag (&lt;&lt;pozo&gt;&gt;)</th>
+              <th>Group (&lt;&lt;bat&gt;&gt;)</th>
+              <th>Device (&lt;&lt;dispositivo&gt;&gt;)</th>
+              <th>Controller</th>
+              <th>Controller Type</th>
+              <th style="text-align: center;">Has PT</th>
+              <th style="text-align: center;">Has TKE</th>
+              <th style="text-align: center;">Has TKQ</th>
+              <th style="text-align: center;">Has SAM</th>
             </tr>
           </thead>
           <tbody id="table-body"></tbody>
@@ -405,7 +405,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </div>
 
   <div class="footer">
-    Generado automáticamente por GDF Survey Tool &bull; Relevamiento consolidado por equipo fuera de línea
+    Generated automatically by GDF Survey Tool &bull; Offline consolidated equipment survey
   </div>
 
   <script>
@@ -430,7 +430,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         const allBtn = document.createElement('button');
         allBtn.className = 'screen-tab active';
-        allBtn.textContent = `Todas las Pantallas (${totalPumpsAll})`;
+        allBtn.textContent = `All Displays (${totalPumpsAll})`;
         allBtn.onclick = () => selectScreen('__ALL__', allBtn);
         tabsContainer.appendChild(allBtn);
 
@@ -480,7 +480,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const ptCount = pool.filter(p => p.has_pt === '1').length;
       const brandCounts = {};
       pool.forEach(p => {
-        if (p.controller_brand && p.controller_brand !== 'Desconocido') {
+        if (p.controller_brand && p.controller_brand !== 'Desconocido' && p.controller_brand !== 'Unknown') {
           brandCounts[p.controller_brand] = (brandCounts[p.controller_brand] || 0) + 1;
         }
       });
@@ -488,11 +488,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       kpis.innerHTML = `
         <div class="kpi-pill">
           <div class="kpi-num">${pool.length}</div>
-          <div class="kpi-lbl">Equipos Activos</div>
+          <div class="kpi-lbl">Active Equipment</div>
         </div>
         <div class="kpi-pill">
           <div class="kpi-num" style="color: var(--green);">${ptCount}</div>
-          <div class="kpi-lbl">Con Presión PT</div>
+          <div class="kpi-lbl">With PT Pressure</div>
         </div>
         ${Object.entries(brandCounts).map(([b, c]) => `
           <div class="kpi-pill">
@@ -513,14 +513,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const ptYes = pool.filter(p => p.has_pt === '1').length;
       const ptNo = pool.filter(p => p.has_pt !== '1').length;
       buildFacetGroup('facet-pt', 'pt', [
-        { label: 'Con Presión PT', val: '1', count: ptYes },
-        { label: 'Sin Presión PT', val: '0', count: ptNo }
+        { label: 'With PT Pressure', val: '1', count: ptYes },
+        { label: 'Without PT Pressure', val: '0', count: ptNo }
       ]);
 
       // 3. Batteries
       const batMap = {};
       pool.forEach(p => {
-        const b = p.battery || 'Sin Asignar';
+        const b = p.battery || 'Unassigned';
         batMap[b] = (batMap[b] || 0) + 1;
       });
       const batOptions = Object.entries(batMap).sort((a, b) => b[1] - a[1]).map(([b, c]) => ({ label: b, val: b, count: c }));
@@ -529,7 +529,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       // 4. Controller Types
       const typeMap = {};
       pool.forEach(p => {
-        const t = p.controller_type || 'Genérico';
+        const t = p.controller_type || 'Generic';
         typeMap[t] = (typeMap[t] || 0) + 1;
       });
       const typeOptions = Object.entries(typeMap).sort((a, b) => b[1] - a[1]).map(([t, c]) => ({ label: t, val: t, count: c }));
@@ -539,8 +539,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const samYes = pool.filter(p => p.has_sam === '1').length;
       const samNo = pool.filter(p => p.has_sam !== '1').length;
       buildFacetGroup('facet-sam', 'sam', [
-        { label: 'Con SAM', val: '1', count: samYes },
-        { label: 'Sin SAM', val: '0', count: samNo }
+        { label: 'With SAM', val: '1', count: samYes },
+        { label: 'Without SAM', val: '0', count: samNo }
       ]);
     }
 
@@ -652,35 +652,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         bar.appendChild(chip);
       };
 
-      selectedFacets.brands.forEach(b => addChip(`Controlador: ${b}`, () => { selectedFacets.brands.delete(b); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.pt.forEach(v => addChip(`PT: ${v === '1' ? 'Con PT' : 'Sin PT'}`, () => { selectedFacets.pt.delete(v); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.batteries.forEach(b => addChip(`Grupo: ${b}`, () => { selectedFacets.batteries.delete(b); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.types.forEach(t => addChip(`Tipo: ${t}`, () => { selectedFacets.types.delete(t); buildFacetCheckboxes(pool); applyFilters(); }));
-      selectedFacets.sam.forEach(v => addChip(`SAM: ${v === '1' ? 'Con SAM' : 'Sin SAM'}`, () => { selectedFacets.sam.delete(v); buildFacetCheckboxes(pool); applyFilters(); }));
+      selectedFacets.brands.forEach(b => addChip(`Controller: ${b}`, () => { selectedFacets.brands.delete(b); buildFacetCheckboxes(pool); applyFilters(); }));
+      selectedFacets.pt.forEach(v => addChip(`PT: ${v === '1' ? 'With PT' : 'Without PT'}`, () => { selectedFacets.pt.delete(v); buildFacetCheckboxes(pool); applyFilters(); }));
+      selectedFacets.batteries.forEach(b => addChip(`Group: ${b}`, () => { selectedFacets.batteries.delete(b); buildFacetCheckboxes(pool); applyFilters(); }));
+      selectedFacets.types.forEach(t => addChip(`Type: ${t}`, () => { selectedFacets.types.delete(t); buildFacetCheckboxes(pool); applyFilters(); }));
+      selectedFacets.sam.forEach(v => addChip(`SAM: ${v === '1' ? 'With SAM' : 'Without SAM'}`, () => { selectedFacets.sam.delete(v); buildFacetCheckboxes(pool); applyFilters(); }));
 
       const q = document.getElementById('search-input').value.trim();
       if (q) {
-        addChip(`Búsqueda: "${q}"`, () => { document.getElementById('search-input').value = ''; applyFilters(); });
+        addChip(`Search: "${q}"`, () => { document.getElementById('search-input').value = ''; applyFilters(); });
       }
     }
 
     function renderTableRows(pumps, totalPoolCount) {
-      document.getElementById('results-count').textContent = `Mostrando ${pumps.length} de ${totalPoolCount} equipos relevados`;
+      document.getElementById('results-count').textContent = `Showing ${pumps.length} of ${totalPoolCount} surveyed items`;
 
       const tbody = document.getElementById('table-body');
       tbody.innerHTML = '';
 
       if (pumps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; padding: 40px; color: var(--text-muted);">No se encontraron equipos que coincidan con los filtros.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" style="text-align: center; padding: 40px; color: var(--text-muted);">No equipment matching the filter criteria.</td></tr>`;
         return;
       }
 
       pumps.forEach((p, idx) => {
         const tr = document.createElement('tr');
 
-        let brandBadge = `<span class="badge badge-highlight">${escapeHtml(p.controller_brand || 'Genérico')}</span>`;
+        let brandBadge = `<span class="badge badge-highlight">${escapeHtml(p.controller_brand || 'Generic')}</span>`;
 
-        const flag = (val) => val === '1' ? '<span class="flag-yes">SÍ</span>' : '<span class="flag-no">NO</span>';
+        const flag = (val) => val === '1' ? '<span class="flag-yes">YES</span>' : '<span class="flag-no">NO</span>';
 
         tr.innerHTML = `
           <td style="text-align: center; color: var(--text-muted);">${idx + 1}</td>

@@ -95,8 +95,8 @@ def test_cli_output_dir_options(synthetic_gdf: Path, tmp_path: Path) -> None:
         "--quiet",
     ])
     assert exit_code == 0
-    assert (out_dir / "relevamiento_Planta1.xlsx").exists()
-    assert (out_dir / "relevamiento_Planta1.html").exists()
+    assert (out_dir / "survey_Planta1.xlsx").exists()
+    assert (out_dir / "survey_Planta1.html").exists()
 
     # Test 2: File prefix
     out_prefix = tmp_path / "custom_prefix"

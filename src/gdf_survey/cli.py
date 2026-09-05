@@ -18,33 +18,33 @@ from gdf_survey.models import GdfSurveyResult
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="gdf-survey",
-        description="Relevamiento de equipos, tipos de controladores y tags desde pantallas GraphWorX32 (.gdf).",
+        description="Survey equipment, controller types, and tags from GraphWorX32 displays (.gdf).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            "Ejemplos:\n"
-            "  gdf-survey pantalla.gdf --name=Area1 -o relevamientos/\n"
-            "  gdf-survey pantalla.gdf -o informes/Area1_equipos\n"
-            "  gdf-survey pantallas/*.gdf --output-dir=salidas/\n"
-            "  gdf-survey pantalla.gdf -x reporte.xlsx -t reporte.html\n"
+            "Examples:\n"
+            "  gdf-survey display.gdf --name=Area1 -o surveys/\n"
+            "  gdf-survey display.gdf -o reports/Area1_equipment\n"
+            "  gdf-survey displays/*.gdf --output-dir=output/\n"
+            "  gdf-survey display.gdf -x report.xlsx -t report.html\n"
         ),
     )
 
     parser.add_argument(
         "inputs",
         nargs="+",
-        help="Uno o mas archivos .gdf (acepta patrones glob como 'gdf_examples/*.gdf')",
+        help="One or more .gdf files (accepts glob patterns like 'displays/*.gdf')",
     )
     parser.add_argument(
         "-l",
         "--layer",
         default="1",
-        help="Capa a relevar (default: 1 o '1-ALM')",
+        help="Layer to survey (default: 1 or '1-ALM')",
     )
     parser.add_argument(
         "-n",
         "--name",
         default=None,
-        help="Nombre personalizado para la hoja de Excel / solapa (ej: --name=Area1). Para multiples archivos se puede pasar lista separada por comas.",
+        help="Custom name for Excel sheet / tab (e.g. --name=Area1). Comma-separated list for multiple files.",
     )
     parser.add_argument(
         "-o",
@@ -53,38 +53,38 @@ def build_parser() -> argparse.ArgumentParser:
         dest="output_dir",
         default=None,
         help=(
-            "Directorio o prefijo de ruta de salida para ambos reportes "
-            "(ej: -o relevamientos/ o -o ./reportes/Area1). "
-            "Crea automaticamente carpetas intermedias."
+            "Output directory or path prefix for both reports "
+            "(e.g. -o surveys/ or -o ./reports/Area1). "
+            "Creates intermediate folders automatically."
         ),
     )
     parser.add_argument(
         "-x",
         "--out-excel",
         default=None,
-        help="Ruta especifica del archivo Excel de salida (sobrescribe -o)",
+        help="Specific path for output Excel workbook (overrides -o)",
     )
     parser.add_argument(
         "-t",
         "--out-html",
         default=None,
-        help="Ruta especifica del reporte HTML interactivo de salida (sobrescribe -o)",
+        help="Specific path for interactive HTML report (overrides -o)",
     )
     parser.add_argument(
         "--no-excel",
         action="store_true",
-        help="Omitir la generacion del archivo Excel",
+        help="Skip generating the Excel workbook",
     )
     parser.add_argument(
         "--no-html",
         action="store_true",
-        help="Omitir la generacion del reporte HTML",
+        help="Skip generating the HTML report",
     )
     parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
-        help="Modo silencioso, no imprime el resumen en consola",
+        help="Quiet mode, suppress console summary",
     )
 
     return parser
@@ -144,11 +144,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if p.exists():
                 resolved_paths.append(p)
             else:
-                sys.stderr.write(f"Error: No se encontro el archivo '{pattern}'\n")
+                sys.stderr.write(f"Error: File '{pattern}' not found.\n")
                 return 1
 
     if not resolved_paths:
-        sys.stderr.write("Error: No se especificaron archivos .gdf validos.\n")
+        sys.stderr.write("Error: No valid .gdf files specified.\n")
         return 1
 
     # Deduplicate while preserving order
@@ -161,7 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             unique_paths.append(p)
 
     if not unique_paths:
-        sys.stderr.write("Error: Ninguno de los archivos especificados tiene extension .gdf\n")
+        sys.stderr.write("Error: None of the specified files have .gdf extension.\n")
         return 1
 
     # 2. Parse sheet names
@@ -184,13 +184,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             results.append(res)
         except Exception as err:
             had_errors = True
-            sys.stderr.write(f"Error procesando '{path.name}': {err}\n")
+            sys.stderr.write(f"Error processing '{path.name}': {err}\n")
     if not results:
-        sys.stderr.write("Error: No se pudo procesar ningun archivo .gdf correctamente.\n")
+        sys.stderr.write("Error: Could not process any .gdf file successfully.\n")
         return 1
 
     # 4. Determine base name and resolve output paths
-    default_name = f"relevamiento_{custom_names[0]}" if custom_names else f"relevamiento_{results[0].sheet_name}"
+    default_name = f"survey_{custom_names[0]}" if custom_names else f"survey_{results[0].sheet_name}"
     excel_path, html_path = _resolve_output_paths(
         args.output_dir,
         args.out_excel,
@@ -209,23 +209,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     # 5. Print Console Summary
     if not args.quiet:
         print("\n" + "=" * 70)
-        print(" RELEVAMIENTO DE EQUIPOS Y PANTALLAS SCADA GDF")
+        print(" GDF SCADA SCREEN & EQUIPMENT SURVEY")
         print("=" * 70)
 
         for res in results:
-            print(f"\nPantalla: {res.gdf_path.name}  (Hoja: {res.sheet_name})")
-            print(f"Capa:     {res.layer_name}")
-            print(f"Total:    {res.total_pumps} renglones ({res.active_pumps} activos, {res.spare_pumps} reserva/plantilla)")
+            print(f"\nDisplay:  {res.gdf_path.name}  (Sheet: {res.sheet_name})")
+            print(f"Layer:    {res.layer_name}")
+            print(f"Total:    {res.total_pumps} records ({res.active_pumps} active, {res.spare_pumps} spare/template)")
 
             if res.brand_counts:
                 brands = ", ".join(f"{b}: {c}" for b, c in res.brand_counts.items())
-                print(f"Controladores: {brands}")
+                print(f"Controllers: {brands}")
 
         print("\n" + "-" * 70)
         if actual_excel:
-            print(f"Excel generado:  {actual_excel} ({actual_excel.stat().st_size:,} bytes)")
+            print(f"Generated Excel:  {actual_excel} ({actual_excel.stat().st_size:,} bytes)")
         if actual_html:
-            print(f"HTML interactivo: {actual_html} ({actual_html.stat().st_size:,} bytes)")
+            print(f"Interactive HTML: {actual_html} ({actual_html.stat().st_size:,} bytes)")
         print("=" * 70 + "\n")
 
     return 2 if had_errors else 0
